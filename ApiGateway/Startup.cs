@@ -1,6 +1,7 @@
 using System.Text;
-using ApiGateway.API;
-using AspNetCore.ApiGateway;
+using ApiGateway.Auth;
+using ApiGateway.Extentions;
+using ApiGateway.Services;
 using AuthService.Model;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
@@ -29,26 +30,31 @@ namespace ApiGateway
             var jwtOptions = jwtSection.Get<JwtOptions>();
             var key = Encoding.UTF8.GetBytes(jwtOptions.Secret);
 
-            services.AddAuthentication(x =>
+            services.AddIdentityServer(options =>
                 {
-                    x.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-                    x.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+                    options.Events.RaiseSuccessEvents = true;
                 })
-                .AddJwtBearer(x =>
+                .AddDeveloperSigningCredential(persistKey: false)
+                .AddInMemoryApiResources(Config.GetApiResources())
+                .AddInMemoryIdentityResources(Config.GetIdentityResources())
+                .AddGatewayClientStore(Config.GetClients())
+                //.AddCustomAuthorizeRequestValidator<GatewayAuthorizeRequestValidator>()
+                //.AddCustomTokenRequestValidator<GatewayTokenRequestValidator>()
+                .AddSecretValidator<GatewaySecretValidator>()
+                .AddSecretParser<GatewaySecretParser>()
+                .AddResourceOwnerValidator<GatewayResourceOwnerPasswordValidator>()
+                .AddProfileService<GatewayProfileService>();
+
+            services.AddAuthentication(options =>
                 {
-                    x.RequireHttpsMetadata = false;
-                    x.SaveToken = true;
-                    x.TokenValidationParameters = new TokenValidationParameters
-                    {
-                        ValidateIssuerSigningKey = true,
-                        IssuerSigningKey = new SymmetricSecurityKey(key),
-                        ValidateIssuer = false,
-                        ValidateAudience = false
-                    };
+                    options.DefaultScheme = "Automatic";
+                })
+                .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options => Configuration.Bind("Jwt", options))
+                .AddGatewayAuthentication("Automatic", "default gateway authentication scheme", options =>
+                {
+                    options.AuthenticationType = "Basic";
                 });
 
-            //Api gateway
-            services.AddApiGateway();
 
             services.AddSwaggerGen(c =>
             {
@@ -73,12 +79,15 @@ namespace ApiGateway
                 c.SwaggerEndpoint("/swagger/v1/swagger.json", "My Api Gateway");
             });
 
-            app.UseMiddleware<RequestResponseLoggingMiddleware>();
-
             app.UseRouting();
 
-            //Api gateway
-            app.UseApiGateway(orchestrator => ApiOrchestration.Create(orchestrator, app));
+            ////CORS
+            app.UseCors("AllowAll");
+
+            //IdentityServer4, for use with bearer authentication
+            app.UseIdentityServer();
+
+            app.UseAuthorization();
 
             app.UseEndpoints(endpoints =>
             {

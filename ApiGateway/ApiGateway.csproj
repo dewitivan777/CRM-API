@@ -13,12 +13,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Extentions\" />
+    <ProjectReference Include="..\AuthService\AuthService.csproj" />
+    <ProjectReference Include="..\Client\Client.csproj" />
+    <ProjectReference Include="..\Services.Domain\Services.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AuthService\AuthService.csproj" />
-    <ProjectReference Include="..\Services.Domain\Services.Domain.csproj" />
+    <Folder Include="Services\" />
   </ItemGroup>
 
 

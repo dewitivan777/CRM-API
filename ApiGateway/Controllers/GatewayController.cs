@@ -1,333 +1,276 @@
 ﻿using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using System.Web;
-using AspNetCore.ApiGateway;
-using AspNetCore.ApiGateway.Authorization;
+using ApiGateway.Auth;
+using ApiGateway.Models;
+using Client;
+using Client.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.JsonPatch;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
 namespace ApiGateway.Controllers
 {
     [Route("service")]
     [ApiController]
-    public class GatewayController  : ControllerBase
+    public class GatewayController : ControllerBase
     {
-        readonly IApiOrchestrator _apiOrchestrator;
-        readonly ILogger<ApiGatewayLog> _logger;
-        readonly IHttpService _httpService;
+        private readonly IApiClient _apiClient;
 
+        private readonly IAuthProvider _authProvider;
 
-        public GatewayController(IApiOrchestrator apiOrchestrator, ILogger<ApiGatewayLog> logger, IHttpService httpService)
+        private readonly INameResolver _nameResolver;
+
+        public GatewayController(
+            IApiClient apiClient,
+            IAuthProvider authProvider,
+            INameResolver nameResolver)
         {
-            _apiOrchestrator = apiOrchestrator;
-            _logger = logger;
-            _httpService = httpService;
+            _apiClient = apiClient;
+            _authProvider = authProvider;
+            _nameResolver = nameResolver;
         }
 
         [HttpGet("{serviceName}/{*page}")]
-        //  [ServiceFilter(typeof(GatewayGetOrHeadAuthorizeAttribute))]
         public async Task<IActionResult> Get(string serviceName, string page)
         {
-            //if (parameters != null)
-            //    parameters = HttpUtility.UrlDecode(parameters);
-            //else
-            //    parameters = string.Empty;
+            var apiInfo = new ApiInfo(serviceName.ToLowerInvariant(), method: "query");
 
-           // _logger.LogApiInfo(serviceName, page);
+            ApiScopeResult scope = _authProvider.IsApiInScope(apiInfo, page);
 
-            var apiInfo = _apiOrchestrator.GetApi(serviceName);
-
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(page);
-
-            var routeInfo = gwRouteInfo.Route;
-
-            if (routeInfo.Exec != null)
+            if (!scope.IsInScope)
             {
-                return Ok(await routeInfo.Exec(apiInfo, this.Request));
+                //Return not found to avoid unwanted consumers discovering services
+                return NotFound();
             }
-            else
+
+            string pathWithQuery;
+
+            if (scope.ScopeToUser)
             {
-                using (var client = routeInfo.HttpClientConfig?.HttpClient())
+                if (Request.QueryString.HasValue)
                 {
-                    this.Request.Headers?.AddRequestHeaders((client ?? _httpService.Client).DefaultRequestHeaders);
-
-                    if (client == null)
-                    {
-                        routeInfo.HttpClientConfig?.CustomizeDefaultHttpClient?.Invoke(_httpService.Client, this.Request);
-                    }
-
-                   // _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
-
-                    var response = await (client ?? _httpService.Client).GetAsync($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
-
-                    response.EnsureSuccessStatusCode();
-
-                   // _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", false);
-
-                    return Ok(routeInfo.ResponseType != null
-                        ? JsonConvert.DeserializeObject(await response.Content.ReadAsStringAsync(), routeInfo.ResponseType)
-                        : await response.Content.ReadAsStringAsync());
+                    //Requests that should be in scope may not add the userid parameter
+                    if (Request.QueryString.ToString().ToLower().Contains("userid"))
+                        return NotFound();
                 }
-            }
-        }
 
-        [HttpPost]
-        [Route("{api}/{key}")]
-        [ServiceFilter(typeof(GatewayPostAuthorizeAttribute))]
-        public async Task<IActionResult> Post(string api, string key, object request, string parameters = null)
-        {
-            if (parameters != null)
-                parameters = HttpUtility.UrlDecode(parameters);
-            else
-                parameters = string.Empty;
+                string userId = _authProvider.GetUserId();
 
-            _logger.LogApiInfo(api, key, parameters, request);
+                if (string.IsNullOrEmpty(userId))
+                    return NotFound();
 
-            var apiInfo = _apiOrchestrator.GetApi(api);
-
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(key);
-
-            var routeInfo = gwRouteInfo.Route;
-
-            if (routeInfo.Exec != null)
-            {
-                return Ok(await routeInfo.Exec(apiInfo, this.Request));
+                pathWithQuery = Request.QueryString.HasValue ?
+                      Request.Path.Value + Request.QueryString + $"&userId={userId}"
+                    : Request.Path.Value + $"?userId={userId}";
             }
             else
             {
-                using (var client = routeInfo.HttpClientConfig?.HttpClient())
+                pathWithQuery = Request.QueryString.HasValue ? Request.Path.Value + Request.QueryString : Request.Path.Value;
+            }
+
+            var response = await _apiClient.GetAsync<object>(apiInfo, pathWithQuery);
+
+            if (response.IsError)
+            {
+                if (response.ResponseError == ResponseError.Http)
                 {
-                    HttpContent content = null;
-
-                    if (routeInfo.HttpClientConfig?.HttpContent != null)
+                    if (string.IsNullOrWhiteSpace(response.Raw))
                     {
-                        content = routeInfo.HttpClientConfig.HttpContent();
+                        return StatusCode((int)response.HttpStatusCode);
                     }
                     else
                     {
-                        content = new StringContent(request.ToString(), Encoding.UTF8, "application/json");
-
-                        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                        return StatusCode((int)response.HttpStatusCode, response.Raw);
                     }
-
-                    this.Request.Headers?.AddRequestHeaders((client ?? _httpService.Client).DefaultRequestHeaders);
-
-                    if (client == null)
-                    {
-                        routeInfo.HttpClientConfig?.CustomizeDefaultHttpClient?.Invoke(_httpService.Client, this.Request);
-                    }
-
-                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
-
-                    var response = await (client ?? _httpService.Client).PostAsync($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", content);
-
-                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", false);
-
-                    response.EnsureSuccessStatusCode();
-
-                    return Ok(routeInfo.ResponseType != null
-                        ? JsonConvert.DeserializeObject(await response.Content.ReadAsStringAsync(), routeInfo.ResponseType)
-                        : await response.Content.ReadAsStringAsync());
                 }
-            }
-        }
 
-        [HttpPut]
-        [Route("{api}/{key}")]
-        [ServiceFilter(typeof(GatewayPutAuthorizeAttribute))]
-        public async Task<IActionResult> Put(string api, string key, object request, string parameters = null)
-        {
-            if (parameters != null)
-                parameters = HttpUtility.UrlDecode(parameters);
-            else
-                parameters = string.Empty;
-
-            _logger.LogApiInfo(api, key, parameters, request);
-
-            var apiInfo = _apiOrchestrator.GetApi(api);
-
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(key);
-
-            var routeInfo = gwRouteInfo.Route;
-
-            if (routeInfo.Exec != null)
-            {
-                return Ok(await routeInfo.Exec(apiInfo, this.Request));
-            }
-            else
-            {
-                using (var client = routeInfo.HttpClientConfig?.HttpClient())
+                if (!string.IsNullOrWhiteSpace(response.Error))
                 {
-                    HttpContent content = null;
-
-                    if (routeInfo.HttpClientConfig?.HttpContent != null)
-                    {
-                        content = routeInfo.HttpClientConfig.HttpContent();
-                    }
-                    else
-                    {
-                        content = new StringContent(request.ToString(), Encoding.UTF8, "application/json");
-
-                        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-                    }
-
-                    this.Request.Headers?.AddRequestHeaders((client ?? _httpService.Client).DefaultRequestHeaders);
-
-                    if (client == null)
-                    {
-                        routeInfo.HttpClientConfig?.CustomizeDefaultHttpClient?.Invoke(_httpService.Client, this.Request);
-                    }
-
-                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
-
-                    var response = await (client ?? _httpService.Client).PutAsync($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", content);
-
-                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", false);
-
-                    response.EnsureSuccessStatusCode();
-
-                    return Ok(routeInfo.ResponseType != null
-                        ? JsonConvert.DeserializeObject(await response.Content.ReadAsStringAsync(), routeInfo.ResponseType)
-                        : await response.Content.ReadAsStringAsync());
+                    return StatusCode(500, response.Error);
                 }
+
+                return StatusCode(500, "unexpected response received while executing the request");
             }
+
+            return Ok(response.Content);
         }
 
-        [HttpPatch]
-        [Route("{api}/{key}")]
-        [ServiceFilter(typeof(GatewayPatchAuthorizeAttribute))]
-        public async Task<IActionResult> Patch(string api, string key, [FromBody] JsonPatchDocument<object> patch, string parameters = null)
+        [HttpPost("{serviceName}/{*page}")]
+        public async Task<IActionResult> Create([FromBody]object @object, string serviceName)
         {
-            if (parameters != null)
-                parameters = HttpUtility.UrlDecode(parameters);
-            else
-                parameters = string.Empty;
-
-            _logger.LogApiInfo(api, key, parameters, patch.ToString());
-
-            var apiInfo = _apiOrchestrator.GetApi(api);
-
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(key);
-
-            var routeInfo = gwRouteInfo.Route;
-
-            if (routeInfo.Exec != null)
+            if (!ModelState.IsValid)
             {
-                return Ok(await routeInfo.Exec(apiInfo, this.Request));
+                return BadRequest(ModelState);
             }
-            else
+
+            var apiInfo = new ApiInfo(serviceName.ToLowerInvariant(), method: "command");
+
+            ApiScopeResult scope = _authProvider.IsApiInScope(apiInfo);
+
+            if (!scope.IsInScope)
             {
-                using (var client = routeInfo.HttpClientConfig?.HttpClient())
+                return NotFound();
+            }
+
+            if (scope.ScopeToUser)
+            {
+                PropertyInfo propertyInfo = @object.GetType().GetProperty("UserId");
+
+                if (propertyInfo == null)
+                    return BadRequest("The requested type requires a UserId");
+
+                propertyInfo.SetValue(@object, _authProvider.GetUserId());
+            }
+
+            var pathWithQuery = Request.QueryString.HasValue ? Request.Path.Value + Request.QueryString : Request.Path.Value;
+
+            var response = await _apiClient.CreateAsync<object, object>(apiInfo, @object, pathWithQuery);
+
+            if (response.IsError)
+            {
+                if (response.ResponseError == ResponseError.Http)
                 {
-                    HttpContent content = null;
-
-                    if (routeInfo.HttpClientConfig?.HttpContent != null)
+                    if (response.HttpStatusCode == HttpStatusCode.BadRequest)
                     {
-                        content = routeInfo.HttpClientConfig.HttpContent();
-                    }
-                    else
-                    {
-                        var p = JsonConvert.SerializeObject(patch);
-
-                        content = new StringContent(p, Encoding.UTF8, "application/json-patch+json");
+                        ModelState.AddModelError(string.Empty, response.Raw);
+                        return BadRequest(ModelState);
                     }
 
-                    this.Request.Headers?.AddRequestHeaders((client ?? _httpService.Client).DefaultRequestHeaders);
-
-                    if (client == null)
-                    {
-                        routeInfo.HttpClientConfig?.CustomizeDefaultHttpClient?.Invoke(_httpService.Client, this.Request);
-                    }
-
-                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
-
-                    var response = await (client ?? _httpService.Client).PatchAsync($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", content);
-
-                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", false);
-
-                    response.EnsureSuccessStatusCode();
-
-                    return Ok(routeInfo.ResponseType != null
-                        ? JsonConvert.DeserializeObject(await response.Content.ReadAsStringAsync(), routeInfo.ResponseType)
-                        : await response.Content.ReadAsStringAsync());
+                    return StatusCode((int)response.HttpStatusCode, response.Error);
                 }
-            }
-        }
 
-        [HttpDelete]
-        [Route("{api}/{key}")]
-        [ServiceFilter(typeof(GatewayDeleteAuthorizeAttribute))]
-        public async Task<IActionResult> Delete(string api, string key, string parameters = null)
-        {
-            if (parameters != null)
-            {
-                parameters = HttpUtility.UrlDecode(parameters);
-            }
-            else
-                parameters = string.Empty;
-
-            _logger.LogApiInfo(api, key, parameters);
-
-            var apiInfo = _apiOrchestrator.GetApi(api);
-
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(key);
-
-            var routeInfo = gwRouteInfo.Route;
-
-            if (routeInfo.Exec != null)
-            {
-                return Ok(await routeInfo.Exec(apiInfo, this.Request));
-            }
-            else
-            {
-                using (var client = routeInfo.HttpClientConfig?.HttpClient())
+                if (response.ResponseError == ResponseError.Exception)
                 {
-                    this.Request.Headers?.AddRequestHeaders((client ?? _httpService.Client).DefaultRequestHeaders);
-
-                    if (client == null)
-                    {
-                        routeInfo.HttpClientConfig?.CustomizeDefaultHttpClient?.Invoke(_httpService.Client, this.Request);
-                    }
-
-                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
-
-                    var response = await (client ?? _httpService.Client).DeleteAsync($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
-
-                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", false);
-
-                    response.EnsureSuccessStatusCode();
-
-                    return Ok(routeInfo.ResponseType != null
-                        ? JsonConvert.DeserializeObject(await response.Content.ReadAsStringAsync(), routeInfo.ResponseType)
-                        : await response.Content.ReadAsStringAsync());
+                    return StatusCode(500, response.Error);
                 }
+                return StatusCode(500);
             }
+
+            return Ok(response.Content);
         }
 
-        [HttpGet]
-        [Route("orchestration")]
-        [ServiceFilter(typeof(GatewayGetOrchestrationAuthorizeAttribute))]
-        [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(Orchestration))]
-        public async Task<IActionResult> GetOrchestration(string api = null, string key = null)
+        [HttpPut("{serviceName}/{*page}")]
+        public async Task<IActionResult> Edit([FromBody]object @object, string serviceName)
         {
-            api = api?.ToLower();
-            key = key?.ToLower();
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
 
-            return Ok(await Task.FromResult(string.IsNullOrEmpty(api) && string.IsNullOrEmpty(key)
-                                            ? _apiOrchestrator.Orchestration
-                                            : (!string.IsNullOrEmpty(api) && string.IsNullOrEmpty(key)
-                                            ? _apiOrchestrator.Orchestration?.Where(x => x.Api.Contains(api.Trim()))
-                                            : (string.IsNullOrEmpty(api) && !string.IsNullOrEmpty(key)
-                                            ? _apiOrchestrator.Orchestration?.Where(x => x.Routes.Any(y => y.Key.Contains(key.Trim())))
-                                                                             .Select(x => x.FilterRoutes(key))
-                                            : _apiOrchestrator.Orchestration?.Where(x => x.Api.Contains(api.Trim()))
-                                                                             .Select(x => x.FilterRoutes(key))))));
+            var apiInfo = new ApiInfo(serviceName.ToLowerInvariant(), method: "command");
+
+            ApiScopeResult scope = _authProvider.IsApiInScope(apiInfo);
+
+            if (!scope.IsInScope)
+            {
+                return NotFound();
+            }
+
+            if (scope.ScopeToUser)
+            {
+                string id = Request.Path.Value.Split('/').Last();
+
+                var checkResponse = await _apiClient.GetAsync<UserIdResponse>(
+                        new ApiInfo(name: apiInfo.Name, method: "query"),
+                        pathWithQuery: $"/service/{apiInfo.Name}?id={id}"
+                    );
+
+                if (checkResponse?.Content?.UserId != _authProvider.GetUserId())
+                {
+                    return BadRequest($"No {apiInfo.Name} found to edit");
+                }
+
+                PropertyInfo propertyInfo = @object.GetType().GetProperty("UserId");
+
+                if (propertyInfo == null)
+                    return BadRequest("The requested type requires a UserId");
+
+                propertyInfo.SetValue(@object, _authProvider.GetUserId());
+            }
+
+            var pathWithQuery = Request.QueryString.HasValue ? Request.Path.Value + Request.QueryString : Request.Path.Value;
+
+            @object = await _nameResolver.ResolveNamesAsync(@object);
+
+            var response = await _apiClient.EditAsync<object, object>(apiInfo, @object, pathWithQuery);
+
+            if (response.IsError)
+            {
+                if (response.ResponseError == ResponseError.Http)
+                {
+                    if (response.HttpStatusCode == HttpStatusCode.NotFound) return NotFound();
+
+                    if (response.HttpStatusCode == HttpStatusCode.BadRequest)
+                    {
+                        ModelState.AddModelError(string.Empty, response.Raw);
+                        return BadRequest(ModelState);
+                    }
+
+                    return StatusCode((int)response.HttpStatusCode, response.Error);
+                }
+
+                return StatusCode(500, response.Error);
+            }
+
+            return Ok(response.Content);
+        }
+
+        [HttpDelete("{serviceName}/{*page}")]
+        public async Task<IActionResult> Delete(string serviceName)
+        {
+            var apiInfo = new ApiInfo(serviceName.ToLowerInvariant(), method: "command");
+
+            var pathWithQuery = Request.QueryString.HasValue ? Request.Path.Value + Request.QueryString : Request.Path.Value;
+
+            ApiScopeResult scope = _authProvider.IsApiInScope(apiInfo);
+
+            if (!scope.IsInScope)
+            {
+                return NotFound();
+            }
+
+            if (scope.ScopeToUser)
+            {
+                string id = Request.Path.Value.Split('/').Last();
+
+                var checkResponse = await _apiClient.GetAsync<UserIdResponse>(
+                        new ApiInfo(name: apiInfo.Name, method: "query"),
+                        pathWithQuery: $"/service/{apiInfo.Name}?id={id}"
+                    );
+
+                if (checkResponse?.Content?.UserId != _authProvider.GetUserId())
+                {
+                    return BadRequest($"No {apiInfo.Name} found to delete");
+                }
+            }
+
+            var response = await _apiClient.DeleteAsync<object>(apiInfo, pathWithQuery);
+
+            if (response.IsError)
+            {
+                if (response.ResponseError == ResponseError.Http)
+                {
+                    if (response.HttpStatusCode == HttpStatusCode.NotFound) return NotFound();
+
+                    return StatusCode((int)response.HttpStatusCode);
+                }
+
+                if (response.ResponseError == ResponseError.Exception)
+                {
+                    return StatusCode(500, response.Error);
+                }
+
+                return StatusCode(500);
+            }
+
+            return Ok(response.Content);
         }
     }
 }

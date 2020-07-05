@@ -1,18 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using AuthService.Extentions;
-using AuthService.Repositories;
-using IdentityMicroservice.Model;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.HttpsPolicy;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace AuthService
 {
@@ -28,8 +18,19 @@ namespace AuthService
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddJwt(Configuration);
+            services.Configure<SqlDbOptions>(Configuration.GetSection("SQLDb"));
 
+            services.AddSwaggerGen(options =>
+            {
+                options.SwaggerDoc(
+                    name: "v1",
+                    info: new Microsoft.OpenApi.Models.OpenApiInfo
+                    {
+                        Title = "Auth Service",
+                        Description = "for auth",
+                        Version = "v1"
+                    });
+            });
             services.AddControllers();
         }
 
@@ -45,6 +46,7 @@ namespace AuthService
 
             app.UseRouting();
 
+            app.UseAuthentication();
             app.UseAuthorization();
 
             app.UseEndpoints(endpoints =>
