@@ -30,8 +30,8 @@ namespace ApiGateway.Controllers
             _httpService = httpService;
         }
 
-        [HttpGet("{serviceName}/{*page}")]
-        //  [ServiceFilter(typeof(GatewayGetOrHeadAuthorizeAttribute))]
+        [HttpGet("{serviceName}/{*page}")] 
+        [ServiceFilter(typeof(GatewayGetOrHeadAuthorizeAttribute))]
         public async Task<IActionResult> Get(string serviceName, string page)
         {
             var parameters = Request.QueryString.Value;
@@ -45,7 +45,7 @@ namespace ApiGateway.Controllers
 
             var apiInfo = _apiOrchestrator.GetApi(serviceName);
 
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(page);
+            var gwRouteInfo = apiInfo.Mediator.GetRoute(page.ToLower()+GatewayVerb.GET);
 
             var routeInfo = gwRouteInfo.Route;
 
@@ -93,7 +93,7 @@ namespace ApiGateway.Controllers
 
             var apiInfo = _apiOrchestrator.GetApi(serviceName);
 
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(serviceName);
+            var gwRouteInfo = apiInfo.Mediator.GetRoute(page.ToLower() + GatewayVerb.POST);
 
             var routeInfo = gwRouteInfo.Route;
 
@@ -154,7 +154,7 @@ namespace ApiGateway.Controllers
 
             var apiInfo = _apiOrchestrator.GetApi(serviceName);
 
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(page);
+            var gwRouteInfo = apiInfo.Mediator.GetRoute(page.ToLower() + GatewayVerb.PUT);
 
             var routeInfo = gwRouteInfo.Route;
 
@@ -215,7 +215,7 @@ namespace ApiGateway.Controllers
 
             var apiInfo = _apiOrchestrator.GetApi(serviceName);
 
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(page);
+            var gwRouteInfo = apiInfo.Mediator.GetRoute(page.ToLower() + GatewayVerb.PATCH);
 
             var routeInfo = gwRouteInfo.Route;
 
@@ -278,7 +278,7 @@ namespace ApiGateway.Controllers
 
             var apiInfo = _apiOrchestrator.GetApi(serviceName);
 
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(page);
+            var gwRouteInfo = apiInfo.Mediator.GetRoute(page.ToLower() + GatewayVerb.DELETE);
 
             var routeInfo = gwRouteInfo.Route;
 

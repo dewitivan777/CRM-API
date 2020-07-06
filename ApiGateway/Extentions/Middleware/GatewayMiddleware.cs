@@ -33,6 +33,7 @@ namespace AspNetCore.ApiGateway
             try
             {
                 var path = context.Request.Path.Value;
+                var type = context.Request.Method;
 
                 var segmentsMatch = Regex.Match(path, "^/?api/Gateway(/(?!orchestration)(?<api>.*?)/(?<key>.*?)(/.*?)?)?$", 
                                                     RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -44,7 +45,7 @@ namespace AspNetCore.ApiGateway
 
                     apiInfo = orchestrator.GetApi(api.ToString());
 
-                    routeInfo = apiInfo.Mediator.GetRoute(key.ToString());
+                    routeInfo = apiInfo.Mediator.GetRoute(path+type);
 
                     if (routeInfo.Verb.ToString() != context.Request.Method.ToUpper())
                     {

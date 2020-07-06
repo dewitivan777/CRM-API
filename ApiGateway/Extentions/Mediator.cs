@@ -40,7 +40,7 @@ namespace AspNetCore.ApiGateway
         public string Path { get; set; }
         public ApiScope Scope { get; set; }
         public Type ResponseType { get; set; }
-   
+
         public Type RequestType { get; set; }
 
         public Func<ApiInfo, HttpRequest, Task<object>> Exec { get; set; }
@@ -51,6 +51,7 @@ namespace AspNetCore.ApiGateway
     public class Mediator : IMediator
     {
         readonly IApiOrchestrator _apiOrchestrator;
+        //Route key equals to {key}{verb}
         Dictionary<string, GatewayRouteInfo> paths = new Dictionary<string, GatewayRouteInfo>();
         public Mediator(IApiOrchestrator apiOrchestrator)
         {
@@ -65,7 +66,7 @@ namespace AspNetCore.ApiGateway
                 Route = routeInfo,
             };
 
-            paths.Add(key.ToLower(), gatewayRouteInfo);
+            paths.Add(key.ToLower() + verb.ToString(), gatewayRouteInfo);
 
             return this;
         }
@@ -81,7 +82,7 @@ namespace AspNetCore.ApiGateway
                 }
             };
 
-            paths.Add(key.ToLower(), gatewayRouteInfo);
+            paths.Add(key.ToLower() + verb.ToString(), gatewayRouteInfo);
 
             return this;
         }
@@ -93,20 +94,15 @@ namespace AspNetCore.ApiGateway
             return _apiOrchestrator.GetApi(apiKey).Mediator;
         }
 
-        public GatewayRouteInfo GetRoute(string key)
+        public IEnumerable<Route> Routes => paths.Select(x => new Route
         {
-            return paths[key.ToLower()];
-        }
-
-        public IEnumerable<Route> Routes => paths.Select(x => new Route 
-        { 
-            Key = x.Key, 
+            Key = x.Key,
             Verb = x.Value?.Verb.ToString(),
             RequestJsonSchema = GetJsonSchema(x.Value?.Route?.RequestType),
             ResponseJsonSchema = GetJsonSchema(x.Value?.Route?.ResponseType)
         });
 
-        #region Private Methods
+
         private JsonSchema GetJsonSchema(Type type)
         {
             if (type == null)
@@ -116,7 +112,14 @@ namespace AspNetCore.ApiGateway
 
             return JsonSchema.Parse(type.ToString());
         }
-        #endregion
-    }
 
+        public GatewayRouteInfo GetRoute(string key)
+        {
+            var result = paths[key];
+
+            return result;
+        }
+    }
 }
+
+
