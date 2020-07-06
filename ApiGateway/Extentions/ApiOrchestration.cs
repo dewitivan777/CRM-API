@@ -18,8 +18,22 @@ namespace ApiGateway.API
 
             orchestrator.AddApi("ClassificationService", "http://localhost:5002/")
                 //Get
-                .AddRoute("forecast", GatewayVerb.GET,
-                    new RouteInfo {Path = "weatherforecast/forecast", ResponseType = typeof(IEnumerable<WeatherForecast>)});
+                .AddRoute("category", GatewayVerb.GET,
+                    new RouteInfo
+                    {
+                        Path = "ClassificationService/category", ResponseType = typeof(IEnumerable<WeatherForecast>),
+                        Scope = new ApiScope() {Scope = "Any", SubClaims = new List<string>() {"Any"}}
+                    })
+                .AddRoute("category", GatewayVerb.POST,
+                    new RouteInfo
+                    {
+                        Path = "ClassificationService/category",
+                        ResponseType = typeof(IEnumerable<WeatherForecast>),
+                        Scope = new ApiScope() {Scope = "Any", SubClaims = new List<string>() {"Moderator"}}
+                    });
+
+
+
 
             //        //Head
             //        .AddRoute("forecasthead", GatewayVerb.HEAD, new RouteInfo { Path = "weatherforecast/forecast" })

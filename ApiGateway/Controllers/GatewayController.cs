@@ -34,12 +34,14 @@ namespace ApiGateway.Controllers
         //  [ServiceFilter(typeof(GatewayGetOrHeadAuthorizeAttribute))]
         public async Task<IActionResult> Get(string serviceName, string page)
         {
-            //if (parameters != null)
-            //    parameters = HttpUtility.UrlDecode(parameters);
-            //else
-            //    parameters = string.Empty;
+            var parameters = Request.QueryString.Value;
 
-           // _logger.LogApiInfo(serviceName, page);
+            if (parameters != null)
+                parameters = HttpUtility.UrlDecode(parameters);
+            else
+                parameters = string.Empty;
+
+            _logger.LogApiInfo(serviceName, page, parameters);
 
             var apiInfo = _apiOrchestrator.GetApi(serviceName);
 
@@ -62,13 +64,13 @@ namespace ApiGateway.Controllers
                         routeInfo.HttpClientConfig?.CustomizeDefaultHttpClient?.Invoke(_httpService.Client, this.Request);
                     }
 
-                   // _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
+                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
 
                     var response = await (client ?? _httpService.Client).GetAsync($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
 
                     response.EnsureSuccessStatusCode();
 
-                   // _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", false);
+                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", false);
 
                     return Ok(routeInfo.ResponseType != null
                         ? JsonConvert.DeserializeObject(await response.Content.ReadAsStringAsync(), routeInfo.ResponseType)
@@ -78,20 +80,20 @@ namespace ApiGateway.Controllers
         }
 
         [HttpPost]
-        [Route("{api}/{key}")]
+        [Route("{serviceName}/{*page}")]
         [ServiceFilter(typeof(GatewayPostAuthorizeAttribute))]
-        public async Task<IActionResult> Post(string api, string key, object request, string parameters = null)
+        public async Task<IActionResult> Post(string serviceName, string page, object request, string parameters = null)
         {
             if (parameters != null)
                 parameters = HttpUtility.UrlDecode(parameters);
             else
                 parameters = string.Empty;
 
-            _logger.LogApiInfo(api, key, parameters, request);
+            _logger.LogApiInfo(serviceName, page, parameters, request);
 
-            var apiInfo = _apiOrchestrator.GetApi(api);
+            var apiInfo = _apiOrchestrator.GetApi(serviceName);
 
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(key);
+            var gwRouteInfo = apiInfo.Mediator.GetRoute(serviceName);
 
             var routeInfo = gwRouteInfo.Route;
 
@@ -139,20 +141,20 @@ namespace ApiGateway.Controllers
         }
 
         [HttpPut]
-        [Route("{api}/{key}")]
+        [Route("{serviceName}/{*page}")]
         [ServiceFilter(typeof(GatewayPutAuthorizeAttribute))]
-        public async Task<IActionResult> Put(string api, string key, object request, string parameters = null)
+        public async Task<IActionResult> Put(string serviceName, string page, object request, string parameters = null)
         {
             if (parameters != null)
                 parameters = HttpUtility.UrlDecode(parameters);
             else
                 parameters = string.Empty;
 
-            _logger.LogApiInfo(api, key, parameters, request);
+            _logger.LogApiInfo(serviceName, page, parameters, request);
 
-            var apiInfo = _apiOrchestrator.GetApi(api);
+            var apiInfo = _apiOrchestrator.GetApi(serviceName);
 
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(key);
+            var gwRouteInfo = apiInfo.Mediator.GetRoute(page);
 
             var routeInfo = gwRouteInfo.Route;
 
@@ -200,20 +202,20 @@ namespace ApiGateway.Controllers
         }
 
         [HttpPatch]
-        [Route("{api}/{key}")]
+        [Route("{serviceName}/{*page}")]
         [ServiceFilter(typeof(GatewayPatchAuthorizeAttribute))]
-        public async Task<IActionResult> Patch(string api, string key, [FromBody] JsonPatchDocument<object> patch, string parameters = null)
+        public async Task<IActionResult> Patch(string serviceName, string page, [FromBody] JsonPatchDocument<object> patch, string parameters = null)
         {
             if (parameters != null)
                 parameters = HttpUtility.UrlDecode(parameters);
             else
                 parameters = string.Empty;
 
-            _logger.LogApiInfo(api, key, parameters, patch.ToString());
+            _logger.LogApiInfo(serviceName, page, parameters, patch.ToString());
 
-            var apiInfo = _apiOrchestrator.GetApi(api);
+            var apiInfo = _apiOrchestrator.GetApi(serviceName);
 
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(key);
+            var gwRouteInfo = apiInfo.Mediator.GetRoute(page);
 
             var routeInfo = gwRouteInfo.Route;
 
@@ -261,9 +263,9 @@ namespace ApiGateway.Controllers
         }
 
         [HttpDelete]
-        [Route("{api}/{key}")]
+        [Route("{serviceName}/{*page}")]
         [ServiceFilter(typeof(GatewayDeleteAuthorizeAttribute))]
-        public async Task<IActionResult> Delete(string api, string key, string parameters = null)
+        public async Task<IActionResult> Delete(string serviceName, string page, string parameters = null)
         {
             if (parameters != null)
             {
@@ -272,11 +274,11 @@ namespace ApiGateway.Controllers
             else
                 parameters = string.Empty;
 
-            _logger.LogApiInfo(api, key, parameters);
+            _logger.LogApiInfo(serviceName, page, parameters);
 
-            var apiInfo = _apiOrchestrator.GetApi(api);
+            var apiInfo = _apiOrchestrator.GetApi(serviceName);
 
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(key);
+            var gwRouteInfo = apiInfo.Mediator.GetRoute(page);
 
             var routeInfo = gwRouteInfo.Route;
 
@@ -314,20 +316,20 @@ namespace ApiGateway.Controllers
         [Route("orchestration")]
         [ServiceFilter(typeof(GatewayGetOrchestrationAuthorizeAttribute))]
         [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(Orchestration))]
-        public async Task<IActionResult> GetOrchestration(string api = null, string key = null)
+        public async Task<IActionResult> GetOrchestration(string serviceName = null, string page = null)
         {
-            api = api?.ToLower();
-            key = key?.ToLower();
+            serviceName = serviceName?.ToLower();
+            page = page?.ToLower();
 
-            return Ok(await Task.FromResult(string.IsNullOrEmpty(api) && string.IsNullOrEmpty(key)
+            return Ok(await Task.FromResult(string.IsNullOrEmpty(serviceName) && string.IsNullOrEmpty(page)
                                             ? _apiOrchestrator.Orchestration
-                                            : (!string.IsNullOrEmpty(api) && string.IsNullOrEmpty(key)
-                                            ? _apiOrchestrator.Orchestration?.Where(x => x.Api.Contains(api.Trim()))
-                                            : (string.IsNullOrEmpty(api) && !string.IsNullOrEmpty(key)
-                                            ? _apiOrchestrator.Orchestration?.Where(x => x.Routes.Any(y => y.Key.Contains(key.Trim())))
-                                                                             .Select(x => x.FilterRoutes(key))
-                                            : _apiOrchestrator.Orchestration?.Where(x => x.Api.Contains(api.Trim()))
-                                                                             .Select(x => x.FilterRoutes(key))))));
+                                            : (!string.IsNullOrEmpty(serviceName) && string.IsNullOrEmpty(page)
+                                            ? _apiOrchestrator.Orchestration?.Where(x => x.Api.Contains(serviceName.Trim()))
+                                            : (string.IsNullOrEmpty(serviceName) && !string.IsNullOrEmpty(page)
+                                            ? _apiOrchestrator.Orchestration?.Where(x => x.Routes.Any(y => y.Key.Contains(page.Trim())))
+                                                                             .Select(x => x.FilterRoutes(page))
+                                            : _apiOrchestrator.Orchestration?.Where(x => x.Api.Contains(serviceName.Trim()))
+                                                                             .Select(x => x.FilterRoutes(page))))));
         }
     }
 }

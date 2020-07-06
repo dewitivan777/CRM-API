@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
+using ApiGateway;
 using Newtonsoft.Json.Schema;
 
 namespace AspNetCore.ApiGateway
@@ -37,8 +38,11 @@ namespace AspNetCore.ApiGateway
     public class RouteInfo
     {
         public string Path { get; set; }
+        public ApiScope Scope { get; set; }
         public Type ResponseType { get; set; }
+   
         public Type RequestType { get; set; }
+
         public Func<ApiInfo, HttpRequest, Task<object>> Exec { get; set; }
         public HttpClientConfig HttpClientConfig { get; set; }
     }
@@ -58,7 +62,7 @@ namespace AspNetCore.ApiGateway
             var gatewayRouteInfo = new GatewayRouteInfo
             {
                 Verb = verb,
-                Route = routeInfo
+                Route = routeInfo,
             };
 
             paths.Add(key.ToLower(), gatewayRouteInfo);

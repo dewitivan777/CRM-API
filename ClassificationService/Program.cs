@@ -20,8 +20,9 @@ namespace ClassificationService
             Host.CreateDefaultBuilder(args)
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
-                    webBuilder.UseStartup<Startup>();
-                    webBuilder.UseUrls("http://*:5002");
+                    webBuilder
+                    .UseStartup<Startup>()
+                    .UseUrls("http://*:5002");
                 });
     }
 }
