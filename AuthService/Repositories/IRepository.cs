@@ -3,11 +3,10 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using AuthService.Model;
-using IdentityMicroservice.Model;
 
 namespace AuthService.Repositories
 {
-   public interface IUserRepository<T> where T : User
+    public interface IRepository<T> where T : BaseEntityToken
     {
         Task<T> GetByIdAsync(string id);
         Task<List<T>> ListAsync();

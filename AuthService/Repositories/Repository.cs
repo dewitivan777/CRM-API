@@ -4,17 +4,16 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using AuthService.Model;
-using IdentityMicroservice.Model;
 using Microsoft.EntityFrameworkCore;
 
 namespace AuthService.Repositories
 {
-    public class UserRepository<T> : IUserRepository<T>
-  where T : User
+    public class Repository<T> : IRepository<T>
+    where T : BaseEntityToken
     {
         private readonly DbContextOptions<SqlDbContext> _options;
 
-        public UserRepository(DbContextOptions<SqlDbContext> options)
+        public Repository(DbContextOptions<SqlDbContext> options)
         {
             _options = options;
         }

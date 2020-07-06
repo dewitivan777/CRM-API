@@ -1,5 +1,4 @@
-﻿using AspNetCore.ApiGateway.Authorization;
-using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -17,13 +16,6 @@ namespace AspNetCore.ApiGateway
             var apis = new ApiOrchestrator();
             
             services.AddTransient<IApiOrchestrator>(x => apis);
-            services.AddScoped<GatewayAuthorizeAttribute>();
-            services.AddScoped<GatewayGetOrHeadAuthorizeAttribute>();
-            services.AddScoped<GatewayGetOrchestrationAuthorizeAttribute>();
-            services.AddScoped<GatewayPostAuthorizeAttribute>();
-            services.AddScoped<GatewayPutAuthorizeAttribute>();
-            services.AddScoped<GatewayPatchAuthorizeAttribute>();
-            services.AddScoped<GatewayDeleteAuthorizeAttribute>();
             services.AddHttpClient<IHttpService, HttpService>();
 
             services.AddControllers();

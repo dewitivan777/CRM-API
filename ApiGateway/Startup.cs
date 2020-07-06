@@ -1,14 +1,15 @@
-using System.Text;
 using ApiGateway.API;
+using ApiGateway.Extentions;
+using ApiGateway.Extentions.Authorization;
+using ApiGateway.Extentions.Authorization.Services;
 using AspNetCore.ApiGateway;
-using AuthService.Model;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
 namespace ApiGateway
@@ -25,26 +26,32 @@ namespace ApiGateway
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            var jwtSection = Configuration.GetSection("jwt");
-            var jwtOptions = jwtSection.Get<JwtOptions>();
-            var key = Encoding.UTF8.GetBytes(jwtOptions.Secret);
+            services.AddSingleton<IPasswordHasher<string>, GatewayPasswordHasher<string>>();
+            services.AddSingleton<IAuthProvider, AuthProvider>();
+            services.AddScoped<IIdCryptoProvider, IdCryptoProvider>();
 
-            services.AddAuthentication(x =>
+
+            services.AddIdentityServer(options =>
                 {
-                    x.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-                    x.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+                    options.Events.RaiseSuccessEvents = true;
                 })
-                .AddJwtBearer(x =>
+                .AddDeveloperSigningCredential(persistKey: false)
+                .AddInMemoryApiResources(Config.GetApiResources())
+                .AddInMemoryIdentityResources(Config.GetIdentityResources())
+                .AddGatewayClientStore(Config.GetClients())
+                .AddSecretValidator<GatewaySecretValidator>()
+                .AddSecretParser<GatewaySecretParser>()
+                .AddResourceOwnerValidator<GatewayResourceOwnerPasswordValidator>()
+                .AddProfileService<GatewayProfileService>();
+
+            services.AddAuthentication(options =>
                 {
-                    x.RequireHttpsMetadata = false;
-                    x.SaveToken = true;
-                    x.TokenValidationParameters = new TokenValidationParameters
-                    {
-                        ValidateIssuerSigningKey = true,
-                        IssuerSigningKey = new SymmetricSecurityKey(key),
-                        ValidateIssuer = false,
-                        ValidateAudience = false
-                    };
+                    options.DefaultScheme = "Automatic";
+                })
+                .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options => Configuration.Bind("JwtSettings", options))
+                .AddGatewayAuthentication("Automatic", "default gateway authentication scheme", options =>
+                {
+                    options.AuthenticationType = "Basic";
                 });
 
             //Api gateway

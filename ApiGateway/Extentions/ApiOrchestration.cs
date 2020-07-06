@@ -16,7 +16,17 @@ namespace ApiGateway.API
 
             // var weatherApiClientConfig = weatherService.GetClientConfig();
 
-            orchestrator.AddApi("ClassificationService", "http://localhost:5002/")
+            orchestrator
+                .AddApi("AuthService", "http://localhost:5002/")
+                //Get
+                .AddRoute("account", GatewayVerb.GET,
+                    new RouteInfo
+                    {
+                        Path = "AuthService/account",
+                        ResponseType = typeof(IEnumerable<WeatherForecast>),
+                        Scope = new ApiScope() {Scope = "Any", SubClaims = new List<string>() {"Any"}}
+                    })
+                .AddApi("ClassificationService", "http://localhost:5002/")
                 //Get
                 .AddRoute("category", GatewayVerb.GET,
                     new RouteInfo
@@ -24,6 +34,7 @@ namespace ApiGateway.API
                         Path = "ClassificationService/category", ResponseType = typeof(IEnumerable<WeatherForecast>),
                         Scope = new ApiScope() {Scope = "Any", SubClaims = new List<string>() {"Any"}}
                     })
+                //Post
                 .AddRoute("category", GatewayVerb.POST,
                     new RouteInfo
                     {
@@ -31,6 +42,7 @@ namespace ApiGateway.API
                         ResponseType = typeof(IEnumerable<WeatherForecast>),
                         Scope = new ApiScope() {Scope = "Any", SubClaims = new List<string>() {"Moderator"}}
                     });
+
 
 
 

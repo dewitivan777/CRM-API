@@ -4,8 +4,8 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using System.Web;
+using ApiGateway.Extentions.Authorization;
 using AspNetCore.ApiGateway;
-using AspNetCore.ApiGateway.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.JsonPatch;
 using Microsoft.AspNetCore.Mvc;
@@ -16,22 +16,23 @@ namespace ApiGateway.Controllers
 {
     [Route("service")]
     [ApiController]
-    public class GatewayController  : ControllerBase
+    public class GatewayController : ControllerBase
     {
         readonly IApiOrchestrator _apiOrchestrator;
         readonly ILogger<ApiGatewayLog> _logger;
         readonly IHttpService _httpService;
+        private readonly IAuthProvider _authProvider;
 
 
-        public GatewayController(IApiOrchestrator apiOrchestrator, ILogger<ApiGatewayLog> logger, IHttpService httpService)
+        public GatewayController(IApiOrchestrator apiOrchestrator, ILogger<ApiGatewayLog> logger, IHttpService httpService, IAuthProvider authProvider)
         {
             _apiOrchestrator = apiOrchestrator;
             _logger = logger;
             _httpService = httpService;
+            _authProvider = authProvider;
         }
 
-        [HttpGet("{serviceName}/{*page}")] 
-        [ServiceFilter(typeof(GatewayGetOrHeadAuthorizeAttribute))]
+        [HttpGet("{serviceName}/{*page}")]
         public async Task<IActionResult> Get(string serviceName, string page)
         {
             var parameters = Request.QueryString.Value;
@@ -45,43 +46,54 @@ namespace ApiGateway.Controllers
 
             var apiInfo = _apiOrchestrator.GetApi(serviceName);
 
-            var gwRouteInfo = apiInfo.Mediator.GetRoute(page.ToLower()+GatewayVerb.GET);
+            var gwRouteInfo = apiInfo.Mediator.GetRoute(page.ToLower() + GatewayVerb.GET);
 
             var routeInfo = gwRouteInfo.Route;
 
-            if (routeInfo.Exec != null)
+            var scope = _authProvider.IsApiInScope(routeInfo);
+
+            if (scope.IsInScope)
             {
-                return Ok(await routeInfo.Exec(apiInfo, this.Request));
-            }
-            else
-            {
-                using (var client = routeInfo.HttpClientConfig?.HttpClient())
+                if (routeInfo.Exec != null)
                 {
-                    this.Request.Headers?.AddRequestHeaders((client ?? _httpService.Client).DefaultRequestHeaders);
-
-                    if (client == null)
+                    return Ok(await routeInfo.Exec(apiInfo, this.Request));
+                }
+                else
+                {
+                    using (var client = routeInfo.HttpClientConfig?.HttpClient())
                     {
-                        routeInfo.HttpClientConfig?.CustomizeDefaultHttpClient?.Invoke(_httpService.Client, this.Request);
+                        this.Request.Headers?.AddRequestHeaders((client ?? _httpService.Client).DefaultRequestHeaders);
+
+                        if (client == null)
+                        {
+                            routeInfo.HttpClientConfig?.CustomizeDefaultHttpClient?.Invoke(_httpService.Client,
+                                this.Request);
+                        }
+
+                        _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
+
+                        var response =
+                            await (client ?? _httpService.Client).GetAsync(
+                                $"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
+
+                        response.EnsureSuccessStatusCode();
+
+                        _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", false);
+
+                        return Ok(routeInfo.ResponseType != null
+                            ? JsonConvert.DeserializeObject(await response.Content.ReadAsStringAsync(),
+                                routeInfo.ResponseType)
+                            : await response.Content.ReadAsStringAsync());
                     }
-
-                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
-
-                    var response = await (client ?? _httpService.Client).GetAsync($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}");
-
-                    response.EnsureSuccessStatusCode();
-
-                    _logger.LogApiInfo($"{apiInfo.BaseUrl}{routeInfo.Path}{parameters}", false);
-
-                    return Ok(routeInfo.ResponseType != null
-                        ? JsonConvert.DeserializeObject(await response.Content.ReadAsStringAsync(), routeInfo.ResponseType)
-                        : await response.Content.ReadAsStringAsync());
                 }
             }
+
+            //Return not found to avoid unwanted consumers discovering services
+            return NotFound();
         }
 
         [HttpPost]
         [Route("{serviceName}/{*page}")]
-        [ServiceFilter(typeof(GatewayPostAuthorizeAttribute))]
         public async Task<IActionResult> Post(string serviceName, string page, object request, string parameters = null)
         {
             if (parameters != null)
@@ -142,7 +154,6 @@ namespace ApiGateway.Controllers
 
         [HttpPut]
         [Route("{serviceName}/{*page}")]
-        [ServiceFilter(typeof(GatewayPutAuthorizeAttribute))]
         public async Task<IActionResult> Put(string serviceName, string page, object request, string parameters = null)
         {
             if (parameters != null)
@@ -203,7 +214,6 @@ namespace ApiGateway.Controllers
 
         [HttpPatch]
         [Route("{serviceName}/{*page}")]
-        [ServiceFilter(typeof(GatewayPatchAuthorizeAttribute))]
         public async Task<IActionResult> Patch(string serviceName, string page, [FromBody] JsonPatchDocument<object> patch, string parameters = null)
         {
             if (parameters != null)
@@ -264,7 +274,6 @@ namespace ApiGateway.Controllers
 
         [HttpDelete]
         [Route("{serviceName}/{*page}")]
-        [ServiceFilter(typeof(GatewayDeleteAuthorizeAttribute))]
         public async Task<IActionResult> Delete(string serviceName, string page, string parameters = null)
         {
             if (parameters != null)
@@ -314,7 +323,6 @@ namespace ApiGateway.Controllers
 
         [HttpGet]
         [Route("orchestration")]
-        [ServiceFilter(typeof(GatewayGetOrchestrationAuthorizeAttribute))]
         [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(Orchestration))]
         public async Task<IActionResult> GetOrchestration(string serviceName = null, string page = null)
         {
